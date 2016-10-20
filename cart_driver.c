@@ -29,10 +29,8 @@ struct frame {
 struct file {
 	int openFlag;					// Zero if file is closed, one if open
 	char filePath[CART_MAX_PATH_LENGTH];		// File path string
-	int numberOfFrames;				// Number of frames that file is written to
-	int lastBytePosition;				// First empty index in final frame
-	int listIndex;
-	int currentBytePosition;
+	int endPosition;				// First empty index in final frame (in bytes)
+	int currentPosition;				// Current position (in bytes)
 	struct frame listOfFrames[MAX_FILE_SIZE];	// Sorted list of frames that make up file
 							// Sorted such that file is contiguous
 };
@@ -120,10 +118,8 @@ int32_t cart_poweron(void) {
 	for (int i = 0; i < CART_MAX_TOTAL_FILES; i++) {
 		files[i].openFlag = 0;
 		files[i].filePath[0] = '\0';
-		files[i].numberOfFrames = 0;
-		files[i].lastBytePosition = 0;
-		files[i].listIndex = 0;
-		files[i].currentBytePosition = 0;
+		files[i].endPosition = 0;
+		files[i].currentPosition = 0;
 		for (int j = 0; j < MAX_FILE_SIZE; j++) {
 			files[i].listOfFrames[j].cartIndex = 0;
 			files[i].listOfFrames[j].frameIndex = 0;
@@ -182,8 +178,7 @@ int16_t cart_open(char *path) {
 				return (-1);
 			} else {
 				files[i].openFlag = 1;
-				files[i].listIndex = 0;
-				files[i].currentBytePosition = 0;
+				files[i].currentPosition = 0;
 				return (i); // Return file handle
 			}
 		}
@@ -193,10 +188,8 @@ int16_t cart_open(char *path) {
 	numberOfFiles++;
 	files[numberOfFiles].openFlag = 1;
 	strncpy(files[numberOfFiles].filePath, path, length);
-	files[numberOfFiles].numberOfFrames = 0;
-	files[numberOfFiles].lastBytePosition = 0;
-	files[numberOfFiles].listIndex = 0;
-	files[numberOfFiles].currentBytePosition = 0;
+	files[numberOfFiles].endPosition = 0;
+	files[numberOfFiles].currentPosition = 0;
 	for (int i = 0; i < MAX_FILE_SIZE; i++) {
 		files[numberOfFiles].listOfFrames[i].cartIndex = 0;
 		files[numberOfFiles].listOfFrames[i].frameIndex = 0;
@@ -254,8 +247,6 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 
 	// Calculate bytes until end of file
 	int bytesWritten, bytesUntilEOF, bytesToRead;
-	bytesWritten = files[fd].numberOfFrames * CART_FRAME_SIZE - CART_FRAME_SIZE + files[fd].lastBytePosition;
-	bytesUntilEOF = bytesWritten - (files[fd].listIndex * CART_FRAME_SIZE - CART_FRAME_SIZE + files[fd].currentBytePosition);
 
 	// If not enough bytes are left in file, set bytesToRead to bytesUntilEOF
 	if (bytesUntilEOF < count) {
