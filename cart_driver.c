@@ -10,6 +10,7 @@
 
 // Includes
 #include <stdlib.h>
+#include <string.h>
 
 // Project Includes
 #include <cart_driver.h>
@@ -34,6 +35,7 @@ struct file {
 };
 
 struct file files[CART_MAX_TOTAL_FILES];
+int numberOfFiles;
 
 // Implementation
 
@@ -46,7 +48,7 @@ CartXferRegister create_cart_opcode(CartXferRegister ky1, CartXferRegister ky2, 
 	tempFM1 = (fm1&0xffff) << 15;
 	unused = 0x0;
 	regstate = tempKY1|tempKY2|tempRT1|tempCT1|tempFM1|unused;
-	return regstate;
+	return (regstate);
 }
 
 int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) {		
@@ -55,7 +57,7 @@ int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) 
 	oregstate[CART_REG_RT1] = (regstate&0x0000800000000000) >> 47;
 	oregstate[CART_REG_CT1] = (regstate&0x00007FFF80000000) >> 31;
 	oregstate[CART_REG_FM1] = (regstate&0x000000007FFF8000) >> 15;
-	return 0;
+	return (0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -67,6 +69,7 @@ int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) 
 // Outputs      : 0 if successful, -1 if failure
 
 int32_t cart_poweron(void) {
+	// TODO: Update error checking. Use example in assignment slides
 	// Create log
 	initializeLogWithFilename(LOG_SERVICE_NAME);
 
@@ -83,7 +86,7 @@ int32_t cart_poweron(void) {
 	// Check return value
 	extract_cart_opcode(regstate, oregstate);
 	if (oregstate[CART_REG_RT1] == -1) {
-		return -1;
+		return (-1);
 	}
 
 	// Load and zero all cartridges
@@ -96,7 +99,7 @@ int32_t cart_poweron(void) {
 		
 		extract_cart_opcode(regstate, oregstate);
 		if (oregstate[CART_REG_RT1] == -1) {
-			return -1;
+			return (-1);
 		}
 
 		// Zero current cartridge
@@ -105,8 +108,21 @@ int32_t cart_poweron(void) {
 		cart_io_bus(regstate, NULL);
 		extract_cart_opcode(regstate, oregstate);
 		if (oregstate[CART_REG_RT1] == -1) {
-			return -1;
+			return (-1);
 		}
+	}
+
+	// Initialize file system
+	numberOfFiles = 0;
+	for (int i = 0; i < CART_MAX_TOTAL_FILES; i++) {
+		files[i].openFlag = 0;
+		files[i].filePath[0] = '\0';
+		files[i].localFrameIndex = 0;
+		files[i].locationInFrame = 0;
+		for (int j = 0; j < MAX_FILE_SIZE; j++) {
+			files[i].listOfFrames[j].cartIndex = 0;
+			files[i].listOfFrames[j].frameIndex = 0;
+		}		
 	}
 	// Return successfully
 	return(0);
@@ -121,6 +137,7 @@ int32_t cart_poweron(void) {
 // Outputs      : 0 if successful, -1 if failure
 
 int32_t cart_poweroff(void) {
+	// TODO: Update error checking. Use example in assignment slides
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1, fm1;
 	CartXferRegister oregstate[5];
 	// Power off the memory system
@@ -134,9 +151,8 @@ int32_t cart_poweroff(void) {
 	cart_io_bus(regstate, NULL);
 	extract_cart_opcode(regstate, oregstate);
 	if (oregstate[CART_REG_RT1] == -1) {
-		return -1;
+		return (-1);
 	}
-
 	// Return successfully
 	return(0);
 }
@@ -150,9 +166,28 @@ int32_t cart_poweroff(void) {
 // Outputs      : file handle if successful, -1 if failure
 
 int16_t cart_open(char *path) {
+	int length = strlen(path) + 1; // Plus 1 so it includes null character
+
+	// Check if file with path name exists
+	for (int i = 0; i < numberOfFiles; i++) {
+		if (strncmp(files[i].filePath, path, length) == 0) {
+			return (i); // Return file handle
+		}
+	}
+	
+	// Create file
+	numberOfFiles++;
+	files[numberOfFiles].openFlag = 1;
+	strncpy(files[numberOfFiles].filePath, path, length);
+	files[numberOfFiles].localFrameIndex = 0;
+	files[numberOfFiles].locationInFrame = 0;
+	for (int i = 0; i < MAX_FILE_SIZE; i++) {
+		files[numberOfFiles].listOfFrames[i].cartIndex = 0;
+		files[numberOfFiles].listOfFrames[i].frameIndex = 0;
+	}
 
 	// THIS SHOULD RETURN A FILE HANDLE
-	return (0);
+	return (numberOfFiles);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
