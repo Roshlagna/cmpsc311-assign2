@@ -199,6 +199,17 @@ int16_t cart_open(char *path) {
 // Outputs      : 0 if successful, -1 if failure
 
 int16_t cart_close(int16_t fd) {
+	// Invalid file handle
+	if (fd < 0 || fd >= CART_MAX_TOTAL_FILES) {
+		return (-1);
+	}
+	// If file was already closed
+	if (files[fd].openFlag == 0) {
+		return (-1);
+	}
+
+	// Set flag to closed
+	files[fd].openFlag = 0;
 
 	// Return successfully
 	return (0);
