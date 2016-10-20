@@ -4,8 +4,8 @@
 //  Description    : This is the implementation of the standardized IO functions
 //                   for used to access the CRUD storage system.
 //
-//  Author         : [**YOUR NAME**]
-//  Last Modified  : [**YOUR DATE**]
+//  Author         : John Flanigan
+//  Last Modified  : Oct 19 2016
 //
 
 // Includes
@@ -16,7 +16,25 @@
 #include <cart_controller.h>
 #include <cmpsc311_log.h>
 
-//
+//Defines
+#define MAX_FILE_SIZE 100
+
+// Filesystem
+struct frame {
+	int cartIndex;
+	int frameIndex;
+};
+
+struct file {
+	int openFlag;					// Zero if file is closed, one if open
+	char filePath[CART_MAX_PATH_LENGTH];		// File path string
+	int localFrameIndex;				// Index in listOfFrames
+	int locationInFrame;				// First empty index in final frame
+	struct frame listOfFrames[MAX_FILE_SIZE];	// Sorted list of frames that make up file
+};
+
+struct file files[CART_MAX_TOTAL_FILES];
+
 // Implementation
 
 CartXferRegister create_cart_opcode(CartXferRegister ky1, CartXferRegister ky2, CartXferRegister rt1, CartXferRegister ct1, CartXferRegister fm1) {
