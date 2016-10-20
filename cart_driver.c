@@ -29,9 +29,12 @@ struct frame {
 struct file {
 	int openFlag;					// Zero if file is closed, one if open
 	char filePath[CART_MAX_PATH_LENGTH];		// File path string
-	int localFrameIndex;				// Index in listOfFrames
-	int locationInFrame;				// First empty index in final frame
+	int numberOfFrames;				// Number of frames that file is written to
+	int lastBytePosition;				// First empty index in final frame
+	int listIndex;
+	int currentBytePosition;
 	struct frame listOfFrames[MAX_FILE_SIZE];	// Sorted list of frames that make up file
+							// Sorted such that file is contiguous
 };
 
 struct file files[CART_MAX_TOTAL_FILES];
@@ -117,8 +120,10 @@ int32_t cart_poweron(void) {
 	for (int i = 0; i < CART_MAX_TOTAL_FILES; i++) {
 		files[i].openFlag = 0;
 		files[i].filePath[0] = '\0';
-		files[i].localFrameIndex = 0;
-		files[i].locationInFrame = 0;
+		files[i].numberOfFrames = 0;
+		files[i].lastBytePosition = 0;
+		files[i].listIndex = 0;
+		files[i].currentBytePosition = 0;
 		for (int j = 0; j < MAX_FILE_SIZE; j++) {
 			files[i].listOfFrames[j].cartIndex = 0;
 			files[i].listOfFrames[j].frameIndex = 0;
@@ -170,8 +175,17 @@ int16_t cart_open(char *path) {
 
 	// Check if file with path name exists
 	for (int i = 0; i < numberOfFiles; i++) {
+		// If it exists
 		if (strncmp(files[i].filePath, path, length) == 0) {
-			return (i); // Return file handle
+			// Check if file already open. If it is, return -1. Else, open file.
+			if (files[i].openFlag == 1) {
+				return (-1);
+			} else {
+				files[i].openFlag = 1;
+				files[i].listIndex = 0;
+				files[i].currentBytePosition = 0;
+				return (i); // Return file handle
+			}
 		}
 	}
 	
@@ -179,8 +193,10 @@ int16_t cart_open(char *path) {
 	numberOfFiles++;
 	files[numberOfFiles].openFlag = 1;
 	strncpy(files[numberOfFiles].filePath, path, length);
-	files[numberOfFiles].localFrameIndex = 0;
-	files[numberOfFiles].locationInFrame = 0;
+	files[numberOfFiles].numberOfFrames = 0;
+	files[numberOfFiles].lastBytePosition = 0;
+	files[numberOfFiles].listIndex = 0;
+	files[numberOfFiles].currentBytePosition = 0;
 	for (int i = 0; i < MAX_FILE_SIZE; i++) {
 		files[numberOfFiles].listOfFrames[i].cartIndex = 0;
 		files[numberOfFiles].listOfFrames[i].frameIndex = 0;
@@ -227,6 +243,28 @@ int16_t cart_close(int16_t fd) {
 // Outputs      : bytes read if successful, -1 if failure
 
 int32_t cart_read(int16_t fd, void *buf, int32_t count) {
+	// Invalid file handle
+	if (fd < 0 || fd >= CART_MAX_TOTAL_FILES) {
+		return (-1);
+	}
+	// Check if file is closed closed
+	if (files[fd].openFlag == 0) {
+		return (-1);
+	}
+
+	// Calculate bytes until end of file
+	int bytesWritten, bytesUntilEOF, bytesToRead;
+	bytesWritten = files[fd].numberOfFrames * CART_FRAME_SIZE - CART_FRAME_SIZE + files[fd].lastBytePosition;
+	bytesUntilEOF = bytesWritten - (files[fd].listIndex * CART_FRAME_SIZE - CART_FRAME_SIZE + files[fd].currentBytePosition);
+
+	// If not enough bytes are left in file, set bytesToRead to bytesUntilEOF
+	if (bytesUntilEOF < count) {
+		bytesToRead = bytesUntilEOF;
+	} else {
+		bytesToRead = count;
+	}
+	
+	// Read using cart_io_bus
 
 	// Return successfully
 	return (count);
@@ -251,7 +289,7 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Function     : cart_read
+// Function     : cart_seek
 // Description  : Seek to specific point in the file
 //
 // Inputs       : fd - filename of the file to write to
