@@ -246,19 +246,49 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 	}
 
 	// Calculate bytes until end of file
-	int bytesWritten, bytesUntilEOF, bytesToRead;
+	int bytesLeft, bytesToRead;
+	bytesLeft = files[fd].endPosition - files[fd].currentPosition;
 
-	// If not enough bytes are left in file, set bytesToRead to bytesUntilEOF
-	if (bytesUntilEOF < count) {
-		bytesToRead = bytesUntilEOF;
+	// If not enough bytes are left in file, set bytesToRead to bytesLeft
+	if (count > bytesLeft) {
+		bytesToRead = bytesLeft;
 	} else {
 		bytesToRead = count;
 	}
 	
-	// Read using cart_io_bus
+	// First read bytes remaining in current frame
+	int positionInFrame, listIndex;
+	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
+	char tempBuf[CART_FRAME_SIZE];
+	positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
+	listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
+	// If read can be done entirely in current frame
+	if (positionInFrame + bytesToRead <= 1024) {
+		// Load cartridge of frame
+		ky1 = CART_OP_LDCART;
+		ky2 = 0;
+		rt1 = 0;
+		ct1 = files[fd].listOfFrames[listIndex].cartIndex;
+		fm1 = 0;
+		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+		cart_io_bus(regstate, NULL);
+		// Read frame
+		ky1= CART_OP_RDFRME;
+		ky2 = 0;
+		rt1 = 0;
+		ct1 = files[fd].listOfFrames[listIndex].frameIndex;
+		fm1 = 0;
+		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+		cart_io_bus(regstate, tempBuf);
+		// Copy frame contents into buffer
+		memcpy(buf, &tempBuf[positionInFrame], bytesToRead);
+		positionInFrame += bytesToRead;
+	} else {
+		
+	}
 
 	// Return successfully
-	return (count);
+	return (bytesToRead);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
