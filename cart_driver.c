@@ -37,6 +37,22 @@ struct file {
 
 struct file files[CART_MAX_TOTAL_FILES];
 int numberOfFiles;
+int firstFreeCart;
+int firstFreeFrame;
+
+int allocateFrame(int fd) {
+	int lastListIndex = files[fd].endPosition / 1024;
+	lastListIndex++;
+	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeCart;
+	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeFrame;
+	if (firstFreeCart >= CART_CARTRIDGE_SIZE) {
+		firstFreeCart += 1;
+		firstFreeFrame = 0;
+	} else {
+		firstFreeFrame++;	
+	}
+	return (0);
+}
 
 // Implementation
 
@@ -371,6 +387,8 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 	char tempBuf[CART_FRAME_SIZE];
 	positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
 	listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
+	
+	//TODO: Can probably allocate any necessary frames in one step here
 
 	int bytesAvailableInFrame;
 	bytesAvailableInFrame = 1024 - positionInFrame;
