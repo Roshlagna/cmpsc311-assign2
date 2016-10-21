@@ -274,8 +274,8 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 	ky1 = CART_OP_RDFRME;
 	ky2 = 0;
 	rt1 = 0;
-	ct1 = files[fd].listOfFrames[listIndex].frameIndex;
-	fm1 = 0;
+	ct1 = 0;
+	fm1 = files[fd].listOfFrames[listIndex].frameIndex;
 	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
 	cart_io_bus(regstate, tempBuf);
 	// If read only requires single frame
@@ -309,8 +309,8 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 			ky1 = CART_OP_RDFRME;
 			ky2 = 0;
 			rt1 = 0;
-			ct1 = files[fd].listOfFrames[listIndex].frameIndex;
-			fm1 = 0;
+			ct1 = 0;
+			fm1 = files[fd].listOfFrames[listIndex].frameIndex;
 			regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
 			cart_io_bus(regstate, tempBuf);
 			// Concatenate frame contents with buffer
@@ -331,8 +331,8 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		ky1 = CART_OP_RDFRME;
 		ky2 = 0;
 		rt1 = 0;
-		ct1 = files[fd].listOfFrames[listIndex].frameIndex;
-		fm1 = 0;
+		ct1 = 0;
+		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
 		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
 		cart_io_bus(regstate, tempBuf);
 		bytesFromFrame = bytesToRead - files[fd].currentPosition;
@@ -356,6 +356,56 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 // Outputs      : bytes written if successful, -1 if failure
 
 int32_t cart_write(int16_t fd, void *buf, int32_t count) {
+	// Invalid file handle
+	if (fd < 0 || fd >= CART_MAX_TOTAL_FILES) {
+		return (-1);
+	}
+	// Check if file is closed closed
+	if (files[fd].openFlag == 0) {
+		return (-1);
+	}
+
+	int positionInFrame, listIndex, locationInBuf;
+	locationInBuf = 0;
+	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
+	char tempBuf[CART_FRAME_SIZE];
+	positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
+	listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
+
+	int bytesAvailableInFrame;
+	bytesAvailableInFrame = 1024 - positionInFrame;
+
+	// Load cartridge
+	ky1 = CART_OP_LDCART;
+	ky2 = 0;
+	rt1 = 0;
+	ct1 = files[fd].listOfFrames[listIndex].cartIndex;
+	fm1 = 0;
+	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+	cart_io_bus(regstate, NULL);
+	// Read frame
+	ky1 = CART_OP_RDFRME;
+	ky2 = 0;
+	rt1 = 0;
+	ct1 = 0;
+	fm1 = files[fd].listOfFrames[listIndex].frameIndex;
+	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+	cart_io_bus(regstate, tempBuf);
+	// Update tempBuf before writing
+	strncpy(&tempBuf[positionInFrame], buf+locationInBuf, bytesAvailableInFrame);
+	// Write frame
+	ky1 = CART_OP_WRFRME;
+	ky2 = 0;
+	rt1 = 0;
+	ct1 = 0;
+	fm1 = files[fd].listOfFrames[listIndex].frameIndex;
+	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+	cart_io_bus(regstate, tempBuf);
+
+	
+	
+
+	
 
 	// Return successfully
 	return (count);
