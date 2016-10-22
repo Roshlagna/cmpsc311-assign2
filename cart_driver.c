@@ -272,6 +272,8 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		bytesToRead = count;
 	}
 	
+	buf = malloc(bytesToRead * sizeof(char));
+	
 	// First read bytes remaining in current frame
 	int positionInFrame, listIndex;
 	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
@@ -381,49 +383,64 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 		return (-1);
 	}
 
-	int positionInFrame, listIndex, locationInBuf;
-	locationInBuf = 0;
+
+	
 	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
 	char tempBuf[CART_FRAME_SIZE];
-	positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
-	listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
-	
-	//TODO: Can probably allocate any necessary frames in one step here
-
-	int bytesAvailableInFrame;
-	bytesAvailableInFrame = 1024 - positionInFrame;
-
-	// Load cartridge
-	ky1 = CART_OP_LDCART;
-	ky2 = 0;
-	rt1 = 0;
-	ct1 = files[fd].listOfFrames[listIndex].cartIndex;
-	fm1 = 0;
-	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-	cart_io_bus(regstate, NULL);
-	// Read frame
-	ky1 = CART_OP_RDFRME;
-	ky2 = 0;
-	rt1 = 0;
-	ct1 = 0;
-	fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-	cart_io_bus(regstate, tempBuf);
-	// Update tempBuf before writing
-	strncpy(&tempBuf[positionInFrame], buf+locationInBuf, bytesAvailableInFrame);
-	// Write frame
-	ky1 = CART_OP_WRFRME;
-	ky2 = 0;
-	rt1 = 0;
-	ct1 = 0;
-	fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-	cart_io_bus(regstate, tempBuf);
-
 	
 	
+	// Calculate necessary frame allocation and allocate them
+	int stopIndex, listEndIndex;
+	stopIndex = (files[fd].currentPosition + count) / 1024;
+	listEndIndex = files[fd].endPosition;
+	for (int i = listEndIndex; i <= stopIndex; i++) {
+		allocateFrame(fd);
+	}
 
-	
+	int bytesAvailableInFrame, bytesToWrite, positionInFrame, listIndex, locationInBuf;
+	bytesToWrite = count;
+	locationInBuf = 0;
+
+
+	while (bytesToWrite > 0) {
+		positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
+		listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
+		bytesAvailableInFrame = 1024 - positionInFrame;
+
+		// Load cartridge
+		ky1 = CART_OP_LDCART;
+		ky2 = 0;
+		rt1 = 0;
+		ct1 = files[fd].listOfFrames[listIndex].cartIndex;
+		fm1 = 0;
+		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+		cart_io_bus(regstate, NULL);
+		// Read frame
+		ky1 = CART_OP_RDFRME;
+		ky2 = 0;
+		rt1 = 0;
+		ct1 = 0;
+		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
+		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+		cart_io_bus(regstate, tempBuf);
+		// Update tempBuf before writing
+		strncpy(&tempBuf[positionInFrame], buf+locationInBuf, bytesAvailableInFrame);
+		// Write frame
+		ky1 = CART_OP_WRFRME;
+		ky2 = 0;
+		rt1 = 0;
+		ct1 = 0;
+		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
+		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+		cart_io_bus(regstate, tempBuf);
+
+		bytesToWrite -= bytesAvailableInFrame;
+		files[fd].currentPosition += bytesAvailableInFrame;
+		locationInBuf += bytesAvailableInFrame;
+		if (files[fd].endPosition < files[fd].currentPosition) {
+			files[fd].endPosition = files[fd].currentPosition;
+		}
+	}
 
 	// Return successfully
 	return (count);
@@ -439,6 +456,7 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 // Outputs      : 0 if successful, -1 if failure
 
 int32_t cart_seek(int16_t fd, uint32_t loc) {
+	files[fd].currentPosition = loc;
 
 	// Return successfully
 	return (0);
