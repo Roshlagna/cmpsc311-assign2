@@ -45,7 +45,7 @@ int allocateFrame(int fd) {
 	lastListIndex++;
 	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeCart;
 	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeFrame;
-	if (firstFreeCart >= CART_CARTRIDGE_SIZE) {
+	if (firstFreeFrame >= CART_CARTRIDGE_SIZE) {
 		firstFreeCart += 1;
 		firstFreeFrame = 0;
 	} else {
@@ -88,7 +88,8 @@ int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) 
 int32_t cart_poweron(void) {
 	// TODO: Update error checking. Use example in assignment slides
 	// Create log
-	initializeLogWithFilename(LOG_SERVICE_NAME);
+	//initializeLogWithFilename(LOG_SERVICE_NAME);
+	//enableLogLevels(DEFAULT_LOG_LEVEL);
 
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1, fm1, index;
 	CartXferRegister oregstate[5];
@@ -208,7 +209,7 @@ int16_t cart_open(char *path) {
 	files[numberOfFiles].currentPosition = 0;
 	for (int i = 0; i < MAX_FILE_SIZE; i++) {
 		files[numberOfFiles].listOfFrames[i].cartIndex = 0;
-		files[numberOfFiles].listOfFrames[i].frameIndex = 0;
+		files[numberOfFiles].listOfFrames[i].frameIndex = i;
 	}
 
 	// THIS SHOULD RETURN A FILE HANDLE
@@ -393,9 +394,9 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 	int stopIndex, listEndIndex;
 	stopIndex = (files[fd].currentPosition + count) / 1024;
 	listEndIndex = files[fd].endPosition;
-	for (int i = listEndIndex; i <= stopIndex; i++) {
-		allocateFrame(fd);
-	}
+	//for (int i = listEndIndex; i <= stopIndex; i++) {
+	//	allocateFrame(fd);
+	//}
 
 	int bytesAvailableInFrame, bytesToWrite, positionInFrame, listIndex, locationInBuf;
 	bytesToWrite = count;
