@@ -273,14 +273,45 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		bytesToRead = count;
 	}
 	
-	buf = malloc(bytesToRead * sizeof(char));
-	
-	// First read bytes remaining in current frame
-	int positionInFrame, listIndex;
+	int positionInFrame, listIndex, bytesRemaining;
 	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
 	char tempBuf[CART_FRAME_SIZE];
-	positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
-	listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
+
+	bytesRemaining = bytesToRead;
+
+	while (bytesRemaining > 0) {
+		positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
+		listIndex = files[fd].currentPosition / 1024;		// Location in frame list
+
+		// Load cartridge of first frame
+		ky1 = CART_OP_LDCART;
+		ky2 = 0;
+		rt1 = 0;
+		ct1 = files[fd].listOfFrames[listIndex].cartIndex;
+		fm1 = 0;
+		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+		cart_io_bus(regstate, NULL);
+		// Read frame
+		ky1 = CART_OP_RDFRME;
+		ky2 = 0;
+		rt1 = 0;
+		ct1 = 0;
+		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
+		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
+		cart_io_bus(regstate, tempBuf);
+
+		int bytesFromFrame;
+		if (bytesRemaining < 1024) {
+			bytesFromFrame = bytesRemaining;
+			memcpy(buf, &tempBuf[positionInFrame], bytesFromFrame);			
+		} else {
+			bytesFromFrame = 1024;
+			strncat(buf, tempBuf, bytesFromFrame);
+		}
+		bytesRemaining -= bytesFromFrame;
+		files[fd].currentPosition += bytesFromFrame;
+	}
+	/*
 	// Load cartridge of first frame
 	ky1 = CART_OP_LDCART;
 	ky2 = 0;
@@ -300,7 +331,7 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 	// If read only requires single frame
 	if (positionInFrame + bytesToRead <= 1024) {
 		// Copy frame contents into buffer
-		memcpy(buf, &tempBuf[positionInFrame], bytesToRead);
+		//memcpy(buf, &tempBuf[positionInFrame], bytesToRead);
 		files[fd].currentPosition += bytesToRead;
 	} else {
 		// Read cannot be done in single frame
@@ -308,7 +339,7 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		int bytesFromFrame, locationToStop;
 		bytesFromFrame = 1024 - positionInFrame;
 		locationToStop = bytesToRead + files[fd].currentPosition;
-		memcpy(buf, &tempBuf[positionInFrame], bytesFromFrame);
+		//memcpy(buf, &tempBuf[positionInFrame], bytesFromFrame);
 		files[fd].currentPosition += bytesFromFrame;
 		positionInFrame = files[fd].currentPosition % 1024;
 		// Read entire frames
@@ -357,7 +388,7 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		bytesFromFrame = bytesToRead - files[fd].currentPosition;
 		strncat(buf, tempBuf, bytesFromFrame);
 		files[fd].currentPosition += bytesFromFrame;
-	}
+	}*/
 
 	// Return successfully
 	return (bytesToRead);
