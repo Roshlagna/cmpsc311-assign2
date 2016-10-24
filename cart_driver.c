@@ -207,7 +207,7 @@ int16_t cart_open(char *path) {
 	strncpy(files[numberOfFiles].filePath, path, length);
 	files[numberOfFiles].endPosition = 0;
 	files[numberOfFiles].currentPosition = 0;
-	for (int i = 0; i < MAX_FILE_SIZE; i++) {
+	for (int i = 0; i < CART_CARTRIDGE_SIZE; i++) {			// Making assumption only one cart needed. TODO: implement frame allocation
 		files[numberOfFiles].listOfFrames[i].cartIndex = 0;
 		files[numberOfFiles].listOfFrames[i].frameIndex = i;
 	}
@@ -301,94 +301,25 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		cart_io_bus(regstate, tempBuf);
 
 		int bytesFromFrame;
-		if (bytesRemaining < 1024) {
+
+		if (bytesRemaining == bytesToRead) {		// First read needs to be copied into buf
+			if (bytesToRead < 1024) {		// Read only requires one frame
+				bytesFromFrame = bytesToRead;
+			} else {				// Read requires subsequent frames
+				bytesFromFrame = 1024 - positionInFrame;
+			}
+			memcpy(buf, &tempBuf[positionInFrame], bytesFromFrame);
+		} else if (bytesRemaining < 1024) {		// Last read
 			bytesFromFrame = bytesRemaining;
-			memcpy(buf, &tempBuf[positionInFrame], bytesFromFrame);			
-		} else {
+			strncat(buf, tempBuf, bytesFromFrame);
+		} else {					// Entire frame copied
 			bytesFromFrame = 1024;
 			strncat(buf, tempBuf, bytesFromFrame);
 		}
+
 		bytesRemaining -= bytesFromFrame;
 		files[fd].currentPosition += bytesFromFrame;
 	}
-	/*
-	// Load cartridge of first frame
-	ky1 = CART_OP_LDCART;
-	ky2 = 0;
-	rt1 = 0;
-	ct1 = files[fd].listOfFrames[listIndex].cartIndex;
-	fm1 = 0;
-	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-	cart_io_bus(regstate, NULL);
-	// Read frame
-	ky1 = CART_OP_RDFRME;
-	ky2 = 0;
-	rt1 = 0;
-	ct1 = 0;
-	fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-	cart_io_bus(regstate, tempBuf);
-	// If read only requires single frame
-	if (positionInFrame + bytesToRead <= 1024) {
-		// Copy frame contents into buffer
-		//memcpy(buf, &tempBuf[positionInFrame], bytesToRead);
-		files[fd].currentPosition += bytesToRead;
-	} else {
-		// Read cannot be done in single frame
-		// Read from remainder of current frame
-		int bytesFromFrame, locationToStop;
-		bytesFromFrame = 1024 - positionInFrame;
-		locationToStop = bytesToRead + files[fd].currentPosition;
-		//memcpy(buf, &tempBuf[positionInFrame], bytesFromFrame);
-		files[fd].currentPosition += bytesFromFrame;
-		positionInFrame = files[fd].currentPosition % 1024;
-		// Read entire frames
-		int finalListIndex;
-		finalListIndex = locationToStop / 1024;
-		listIndex++;		// Increment List Index
-		for (; listIndex < finalListIndex; listIndex++) {
-			// Load cartridge
-			ky1 = CART_OP_LDCART;
-			ky2 = 0;
-			rt1 = 0;
-			ct1 = files[fd].listOfFrames[listIndex].cartIndex;
-			fm1 = 0;
-			regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-			cart_io_bus(regstate, NULL);
-			// Read frame
-			ky1 = CART_OP_RDFRME;
-			ky2 = 0;
-			rt1 = 0;
-			ct1 = 0;
-			fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-			regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-			cart_io_bus(regstate, tempBuf);
-			// Concatenate frame contents with buffer
-			strncat(buf, tempBuf, 1024);
-			files[fd].currentPosition += 1024;
-		}
-		// Read final frame (might only need part of frame)
-		listIndex++;
-		// Load cartridge
-		ky1 = CART_OP_LDCART;
-		ky2 = 0;
-		rt1 = 0;
-		ct1 = files[fd].listOfFrames[listIndex].cartIndex;
-		fm1 = 0;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, NULL);
-		// Read frame
-		ky1 = CART_OP_RDFRME;
-		ky2 = 0;
-		rt1 = 0;
-		ct1 = 0;
-		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, tempBuf);
-		bytesFromFrame = bytesToRead - files[fd].currentPosition;
-		strncat(buf, tempBuf, bytesFromFrame);
-		files[fd].currentPosition += bytesFromFrame;
-	}*/
 
 	// Return successfully
 	return (bytesToRead);
@@ -414,30 +345,25 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 	if (files[fd].openFlag == 0) {
 		return (-1);
 	}
-
-
 	
 	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
 	char tempBuf[CART_FRAME_SIZE];
-	
-	
-	// Calculate necessary frame allocation and allocate them
-	int stopIndex, listEndIndex;
-	stopIndex = (files[fd].currentPosition + count) / 1024;
-	listEndIndex = files[fd].endPosition;
-	//for (int i = listEndIndex; i <= stopIndex; i++) {
-	//	allocateFrame(fd);
-	//}
 
-	int bytesAvailableInFrame, bytesToWrite, positionInFrame, listIndex, locationInBuf;
-	bytesToWrite = count;
+	int bytesRemaining, bytesToWrite, positionInFrame, listIndex, locationInBuf;
+	bytesRemaining = count;
 	locationInBuf = 0;
 
-
-	while (bytesToWrite > 0) {
+	while (bytesRemaining > 0) {
 		positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
 		listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
-		bytesAvailableInFrame = 1024 - positionInFrame;
+
+		if (bytesRemaining + positionInFrame >= 1024) {
+			bytesToWrite = 1024 - positionInFrame;
+		} else if ((bytesRemaining + positionInFrame) % 1024 != 0) {
+			bytesToWrite = bytesRemaining % 1024;
+		} else {
+			bytesToWrite = 1024;
+		}
 
 		// Load cartridge
 		ky1 = CART_OP_LDCART;
@@ -456,7 +382,7 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
 		cart_io_bus(regstate, tempBuf);
 		// Update tempBuf before writing
-		strncpy(&tempBuf[positionInFrame], buf+locationInBuf, bytesAvailableInFrame);
+		strncpy(&tempBuf[positionInFrame], buf+locationInBuf, bytesToWrite);
 		// Write frame
 		ky1 = CART_OP_WRFRME;
 		ky2 = 0;
@@ -466,9 +392,9 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
 		cart_io_bus(regstate, tempBuf);
 
-		bytesToWrite -= bytesAvailableInFrame;
-		files[fd].currentPosition += bytesAvailableInFrame;
-		locationInBuf += bytesAvailableInFrame;
+		bytesRemaining -= bytesToWrite;
+		files[fd].currentPosition += bytesToWrite;
+		locationInBuf += bytesToWrite;
 		if (files[fd].endPosition < files[fd].currentPosition) {
 			files[fd].endPosition = files[fd].currentPosition;
 		}
