@@ -77,6 +77,20 @@ int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) 
 	return (0);
 }
 
+int checkFileHandle(int16_t fd) {
+	// Invalid file handle
+	if (fd < 0 || fd >= CART_MAX_TOTAL_FILES) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: bad file handle.");
+		return (-1);
+	}
+	// If file was already closed
+	if (files[fd].openFlag == 0) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: file is closed.");
+		return (-1);
+	}
+	return (0);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Function     : cart_poweron
@@ -225,12 +239,7 @@ int16_t cart_open(char *path) {
 // Outputs      : 0 if successful, -1 if failure
 
 int16_t cart_close(int16_t fd) {
-	// Invalid file handle
-	if (fd < 0 || fd >= CART_MAX_TOTAL_FILES) {
-		return (-1);
-	}
-	// If file was already closed
-	if (files[fd].openFlag == 0) {
+	if (checkFileHandle(fd) == -1) {
 		return (-1);
 	}
 
@@ -253,12 +262,7 @@ int16_t cart_close(int16_t fd) {
 // Outputs      : bytes read if successful, -1 if failure
 
 int32_t cart_read(int16_t fd, void *buf, int32_t count) {
-	// Invalid file handle
-	if (fd < 0 || fd >= CART_MAX_TOTAL_FILES) {
-		return (-1);
-	}
-	// Check if file is closed closed
-	if (files[fd].openFlag == 0) {
+	if (checkFileHandle(fd) == -1) {
 		return (-1);
 	}
 
@@ -337,12 +341,7 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 // Outputs      : bytes written if successful, -1 if failure
 
 int32_t cart_write(int16_t fd, void *buf, int32_t count) {
-	// Invalid file handle
-	if (fd < 0 || fd >= CART_MAX_TOTAL_FILES) {
-		return (-1);
-	}
-	// Check if file is closed closed
-	if (files[fd].openFlag == 0) {
+	if (checkFileHandle(fd) == -1) {
 		return (-1);
 	}
 	
@@ -414,6 +413,12 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 // Outputs      : 0 if successful, -1 if failure
 
 int32_t cart_seek(int16_t fd, uint32_t loc) {
+	if (checkFileHandle(fd) == -1) {
+		return (-1);
+	}
+	if (loc > files[fd].endPosition) {
+		return (-1);
+	}
 	files[fd].currentPosition = loc;
 
 	// Return successfully
