@@ -394,8 +394,8 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 	bytesRemaining = bytesToRead;
 
 	while (bytesRemaining > 0) {
-		positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
-		listIndex = files[fd].currentPosition / 1024;		// Location in frame list
+		positionInFrame = files[fd].currentPosition % CART_FRAME_SIZE;	// Position in current frame
+		listIndex = files[fd].currentPosition / CART_FRAME_SIZE;	// Location in frame list
 
 		// Load cartridge of frame
 		if (loadCommand(files[fd].listOfFrames[listIndex].cartIndex) == -1) {
@@ -409,17 +409,17 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		int bytesFromFrame;
 
 		if (bytesRemaining == bytesToRead) {		// First read needs to be copied into buf
-			if (bytesToRead < 1024) {		// Read only requires one frame
+			if (bytesToRead < CART_FRAME_SIZE) {		// Read only requires one frame
 				bytesFromFrame = bytesToRead;
 			} else {				// Read requires subsequent frames
-				bytesFromFrame = 1024 - positionInFrame;
+				bytesFromFrame = CART_FRAME_SIZE - positionInFrame;
 			}
 			memcpy(buf, &tempBuf[positionInFrame], bytesFromFrame);
-		} else if (bytesRemaining < 1024) {		// Last read
+		} else if (bytesRemaining < CART_FRAME_SIZE) {		// Last read
 			bytesFromFrame = bytesRemaining;
 			strncat(buf, tempBuf, bytesFromFrame);
 		} else {					// Entire frame copied
-			bytesFromFrame = 1024;
+			bytesFromFrame = CART_FRAME_SIZE;
 			strncat(buf, tempBuf, bytesFromFrame);
 		}
 
@@ -453,15 +453,15 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 	locationInBuf = 0;
 
 	while (bytesRemaining > 0) {
-		positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
-		listIndex = files[fd].currentPosition / 1024; 		// Location in frame list
+		positionInFrame = files[fd].currentPosition % CART_FRAME_SIZE;	// Position in current frame
+		listIndex = files[fd].currentPosition / CART_FRAME_SIZE; 	// Location in frame list
 
-		if (bytesRemaining + positionInFrame >= 1024) {
-			bytesToWrite = 1024 - positionInFrame;
-		} else if ((bytesRemaining + positionInFrame) % 1024 != 0) {
-			bytesToWrite = bytesRemaining % 1024;
+		if (bytesRemaining + positionInFrame >= CART_FRAME_SIZE) {
+			bytesToWrite = CART_FRAME_SIZE - positionInFrame;
+		} else if ((bytesRemaining + positionInFrame) % CART_FRAME_SIZE != 0) {
+			bytesToWrite = bytesRemaining % CART_FRAME_SIZE;
 		} else {
-			bytesToWrite = 1024;
+			bytesToWrite = CART_FRAME_SIZE;
 		}
 
 		// Load cartridge
