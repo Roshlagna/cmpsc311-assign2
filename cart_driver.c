@@ -32,27 +32,29 @@ struct file {
 	int endPosition;				// First empty index in final frame (in bytes)
 	int currentPosition;				// Current position (in bytes)
 	struct frame listOfFrames[MAX_FILE_SIZE];	// Sorted list of frames that make up file
-							// Sorted such that file is contiguous
+							// Sorted such that frames are consecutive
 };
 
 struct file files[CART_MAX_TOTAL_FILES];
 int numberOfFiles;
-int firstFreeCart;
-int firstFreeFrame;
 
-int allocateFrame(int fd) {
-	int lastListIndex = files[fd].endPosition / 1024;
-	lastListIndex++;
-	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeCart;
-	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeFrame;
-	if (firstFreeFrame >= CART_CARTRIDGE_SIZE) {
-		firstFreeCart += 1;
-		firstFreeFrame = 0;
-	} else {
-		firstFreeFrame++;	
-	}
-	return (0);
-}
+//TODO Implement frame allocation to support multiple files
+//int firstFreeCart;
+//int firstFreeFrame;
+//
+//int allocateFrame(int fd) {
+//	int lastListIndex = files[fd].endPosition / 1024;
+//	lastListIndex++;
+//	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeCart;
+//	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeFrame;
+//	if (firstFreeFrame >= CART_CARTRIDGE_SIZE) {
+//		firstFreeCart += 1;
+//		firstFreeFrame = 0;
+//	} else {
+//		firstFreeFrame++;	
+//	}
+//	return (0);
+//}
 
 // Implementation
 
@@ -68,12 +70,69 @@ CartXferRegister create_cart_opcode(CartXferRegister ky1, CartXferRegister ky2, 
 	return (regstate);
 }
 
-int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) {		
+int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) {	
 	oregstate[CART_REG_KY1] = (regstate&0xff00000000000000) >> 56;
 	oregstate[CART_REG_KY2] = (regstate&0x00ff000000000000) >> 48;
 	oregstate[CART_REG_RT1] = (regstate&0x0000800000000000) >> 47;
 	oregstate[CART_REG_CT1] = (regstate&0x00007FFF80000000) >> 31;
 	oregstate[CART_REG_FM1] = (regstate&0x000000007FFF8000) >> 15;
+	return (0);
+}
+
+int loadCommand(CartridgeIndex cartIndex) {
+	CartXferRegister regstate = 0x0, ky1, ky2, rt1, fm1;
+	CartXferRegister oregstate[5];
+	
+	ky1 = CART_OP_LDCART;
+	ky2 = 0;
+	rt1 = 0;
+	fm1 = 0;
+	regstate = create_cart_opcode(ky1, ky2, rt1, cartIndex, fm1);
+	cart_io_bus(regstate, NULL);
+
+	extract_cart_opcode(regstate, oregstate);
+	if (oregstate[CART_REG_RT1] == -1) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: failed to load cartridge %d.", cartIndex);
+		return (-1);
+	}
+	return (0);
+}
+
+int readCommand(CartFrameIndex frameIndex, char *tempBuf) {
+	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1;
+	CartXferRegister oregstate[5];
+	
+	ky1 = CART_OP_RDFRME;
+	ky2 = 0;
+	rt1 = 0;
+	ct1 = 0;
+	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, frameIndex);
+	cart_io_bus(regstate, tempBuf);
+
+	extract_cart_opcode(regstate, oregstate);
+	if (oregstate[CART_REG_RT1] == -1) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: failed to read frame %d.", frameIndex);
+		return (-1);
+	}
+	return (0);
+}
+
+int writeCommand(CartFrameIndex frameIndex, char *tempBuf) {
+	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1;
+	CartXferRegister oregstate[5];
+
+	ky1 = CART_OP_WRFRME;
+	ky2 = 0;
+	rt1 = 0;
+	ct1 = 0;
+	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, frameIndex);
+	cart_io_bus(regstate, tempBuf);
+
+	extract_cart_opcode(regstate, oregstate);
+	if (oregstate[CART_REG_RT1] == -1) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: failed to write frame %d.", frameIndex);
+		return (-1);
+	}
 	return (0);
 }
 
@@ -100,10 +159,9 @@ int checkFileHandle(int16_t fd) {
 // Outputs      : 0 if successful, -1 if failure
 
 int32_t cart_poweron(void) {
-	// TODO: Update error checking. Use example in assignment slides
 	// Create log
-	//initializeLogWithFilename(LOG_SERVICE_NAME);
-	//enableLogLevels(DEFAULT_LOG_LEVEL);
+	// initializeLogWithFilename(LOG_SERVICE_NAME);
+	// enableLogLevels(DEFAULT_LOG_LEVEL);
 
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1, fm1, index;
 	CartXferRegister oregstate[5];
@@ -118,19 +176,14 @@ int32_t cart_poweron(void) {
 	// Check return value
 	extract_cart_opcode(regstate, oregstate);
 	if (oregstate[CART_REG_RT1] == -1) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: failed to power on.");
 		return (-1);
 	}
 
 	// Load and zero all cartridges
 	for (index = 0x0; index < CART_MAX_CARTRIDGES; index++) {
 		// Load cartridge
-		ky1 = CART_OP_LDCART;
-		ct1 = index;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, NULL);
-		
-		extract_cart_opcode(regstate, oregstate);
-		if (oregstate[CART_REG_RT1] == -1) {
+		if (loadCommand(index) == -1) {
 			return (-1);
 		}
 
@@ -169,7 +222,6 @@ int32_t cart_poweron(void) {
 // Outputs      : 0 if successful, -1 if failure
 
 int32_t cart_poweroff(void) {
-	// TODO: Update error checking. Use example in assignment slides
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1, fm1;
 	CartXferRegister oregstate[5];
 	// Power off the memory system
@@ -179,10 +231,10 @@ int32_t cart_poweroff(void) {
 	ct1 = 0x0;
 	fm1 = 0x0;
 	regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-	logMessage(LOG_WARNING_LEVEL, "Powoff register: %016llx", regstate); 
 	cart_io_bus(regstate, NULL);
 	extract_cart_opcode(regstate, oregstate);
 	if (oregstate[CART_REG_RT1] == -1) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: failed to shut down.");
 		return (-1);
 	}
 	// Return successfully
@@ -278,7 +330,6 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 	}
 	
 	int positionInFrame, listIndex, bytesRemaining;
-	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
 	char tempBuf[CART_FRAME_SIZE];
 
 	bytesRemaining = bytesToRead;
@@ -287,22 +338,14 @@ int32_t cart_read(int16_t fd, void *buf, int32_t count) {
 		positionInFrame = files[fd].currentPosition % 1024;	// Position in current frame
 		listIndex = files[fd].currentPosition / 1024;		// Location in frame list
 
-		// Load cartridge of first frame
-		ky1 = CART_OP_LDCART;
-		ky2 = 0;
-		rt1 = 0;
-		ct1 = files[fd].listOfFrames[listIndex].cartIndex;
-		fm1 = 0;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, NULL);
+		// Load cartridge of frame
+		if (loadCommand(files[fd].listOfFrames[listIndex].cartIndex) == -1) {
+			return (-1);
+		}
 		// Read frame
-		ky1 = CART_OP_RDFRME;
-		ky2 = 0;
-		rt1 = 0;
-		ct1 = 0;
-		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, tempBuf);
+		if (readCommand(files[fd].listOfFrames[listIndex].frameIndex, tempBuf) == -1) {
+			return (-1);
+		}
 
 		int bytesFromFrame;
 
@@ -345,9 +388,7 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 		return (-1);
 	}
 	
-	CartXferRegister regstate, ky1, ky2, rt1, ct1, fm1;
 	char tempBuf[CART_FRAME_SIZE];
-
 	int bytesRemaining, bytesToWrite, positionInFrame, listIndex, locationInBuf;
 	bytesRemaining = count;
 	locationInBuf = 0;
@@ -365,32 +406,20 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 		}
 
 		// Load cartridge
-		ky1 = CART_OP_LDCART;
-		ky2 = 0;
-		rt1 = 0;
-		ct1 = files[fd].listOfFrames[listIndex].cartIndex;
-		fm1 = 0;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, NULL);
+		if (loadCommand(files[fd].listOfFrames[listIndex].cartIndex) == -1) {
+			return (-1);
+		}
 		// Read frame
-		ky1 = CART_OP_RDFRME;
-		ky2 = 0;
-		rt1 = 0;
-		ct1 = 0;
-		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, tempBuf);
+		if (readCommand(files[fd].listOfFrames[listIndex].frameIndex, tempBuf) == -1) {
+			return (-1);
+		}
 		// Update tempBuf before writing
 		strncpy(&tempBuf[positionInFrame], buf+locationInBuf, bytesToWrite);
 		// Write frame
-		ky1 = CART_OP_WRFRME;
-		ky2 = 0;
-		rt1 = 0;
-		ct1 = 0;
-		fm1 = files[fd].listOfFrames[listIndex].frameIndex;
-		regstate = create_cart_opcode(ky1, ky2, rt1, ct1, fm1);
-		cart_io_bus(regstate, tempBuf);
-
+		if (writeCommand(files[fd].listOfFrames[listIndex].frameIndex, tempBuf) == -1) {
+			return (-1);
+		}
+		
 		bytesRemaining -= bytesToWrite;
 		files[fd].currentPosition += bytesToWrite;
 		locationInBuf += bytesToWrite;
@@ -417,6 +446,7 @@ int32_t cart_seek(int16_t fd, uint32_t loc) {
 		return (-1);
 	}
 	if (loc > files[fd].endPosition) {
+		logMessage(LOG_ERROR_LEVEL, "CART driver failed: offset exceeds file length.");
 		return (-1);
 	}
 	files[fd].currentPosition = loc;
