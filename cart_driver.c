@@ -5,7 +5,7 @@
 //                   for used to access the CRUD storage system.
 //
 //  Author         : John Flanigan
-//  Last Modified  : Oct 19 2016
+//  Last Modified  : Oct 24 2016
 //
 
 // Includes
@@ -16,9 +16,6 @@
 #include <cart_driver.h>
 #include <cart_controller.h>
 #include <cmpsc311_log.h>
-
-//Defines
-#define MAX_FILE_SIZE 100
 
 // Filesystem
 struct frame {
@@ -31,7 +28,7 @@ struct file {
 	char filePath[CART_MAX_PATH_LENGTH];		// File path string
 	int endPosition;				// First empty index in final frame (in bytes)
 	int currentPosition;				// Current position (in bytes)
-	struct frame listOfFrames[MAX_FILE_SIZE];	// Sorted list of frames that make up file
+	struct frame listOfFrames[CART_CARTRIDGE_SIZE];	// Sorted list of frames that make up file
 							// Sorted such that frames are consecutive
 };
 
@@ -58,6 +55,18 @@ int numberOfFiles;
 
 // Implementation
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Function     : create_cart_opcode
+// Description  : Packs a 64 bit cart register and returns the packed register
+//
+// Inputs       : ky1 - indicates the cart opcode (8 bits)
+//                ky2 - unused currently (8 bits)
+//                rt1 - single bit to indicate return success or failure (1 bit)
+//                ct1 - cart index
+//                fm1 - frame index
+// Outputs      : regstate - a packed register
+
 CartXferRegister create_cart_opcode(CartXferRegister ky1, CartXferRegister ky2, CartXferRegister rt1, CartXferRegister ct1, CartXferRegister fm1) {
 	CartXferRegister regstate = 0x0, tempKY1, tempKY2, tempRT1, tempCT1, tempFM1, unused;
 	tempKY1 = (ky1&0xff) << 56;
@@ -70,6 +79,16 @@ CartXferRegister create_cart_opcode(CartXferRegister ky1, CartXferRegister ky2, 
 	return (regstate);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Function     : extract_cart_opcode
+// Description  : Unpacks a packed register and puts each value into its own index
+//                in an array
+//
+// Inputs       : regstate - a packed register containing operating arguments
+//                oregstate - an array of CartXferRegister allocated for 5 elements
+// Outputs      : 0 if successful
+
 int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) {	
 	oregstate[CART_REG_KY1] = (regstate&0xff00000000000000) >> 56;
 	oregstate[CART_REG_KY2] = (regstate&0x00ff000000000000) >> 48;
@@ -78,6 +97,14 @@ int extract_cart_opcode(CartXferRegister regstate, CartXferRegister* oregstate) 
 	oregstate[CART_REG_FM1] = (regstate&0x000000007FFF8000) >> 15;
 	return (0);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Function     : loadCommand
+// Description  : Loads a cartridge using the cart_io_bus 
+//
+// Inputs       : cartIndex - the index of the cart to be loaded
+// Outputs      : 0 if successful, -1 if failure
 
 int loadCommand(CartridgeIndex cartIndex) {
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, fm1;
@@ -98,6 +125,17 @@ int loadCommand(CartridgeIndex cartIndex) {
 	return (0);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Function     : readCommand
+// Description  : Reads a frame from the currently loaded cartridge
+//                using the cart_io_bus 
+//
+// Inputs       : frameIndex - the index of the frame to be read
+//                tempBuf - a character pointer allocated for the size of one frame.
+//                          contents of frame will be written to address
+// Outputs      : 0 if successful, -1 if failure
+
 int readCommand(CartFrameIndex frameIndex, char *tempBuf) {
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1;
 	CartXferRegister oregstate[5];
@@ -117,6 +155,17 @@ int readCommand(CartFrameIndex frameIndex, char *tempBuf) {
 	return (0);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Function     : writeCommand
+// Description  : Writes a frame to the currently loaded cartridge
+//                using the cart_io_bus 
+//
+// Inputs       : frameIndex - the index of the frame to be written to
+//                tempBuf - a character pointer allocated for the size of one frame.
+//                          contains the characters to be written
+// Outputs      : 0 if successful, -1 if failure
+
 int writeCommand(CartFrameIndex frameIndex, char *tempBuf) {
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1;
 	CartXferRegister oregstate[5];
@@ -135,6 +184,14 @@ int writeCommand(CartFrameIndex frameIndex, char *tempBuf) {
 	}
 	return (0);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Function     : checkFileHandle
+// Description  : Determines whether the file handle is invalid or closed
+//
+// Inputs       : fd - the file handle
+// Outputs      : 0 if file handle is valid, -1 if it is invalid
 
 int checkFileHandle(int16_t fd) {
 	// Invalid file handle
@@ -204,7 +261,7 @@ int32_t cart_poweron(void) {
 		files[i].filePath[0] = '\0';
 		files[i].endPosition = 0;
 		files[i].currentPosition = 0;
-		for (int j = 0; j < MAX_FILE_SIZE; j++) {
+		for (int j = 0; j < CART_CARTRIDGE_SIZE; j++) {
 			files[i].listOfFrames[j].cartIndex = 0;
 			files[i].listOfFrames[j].frameIndex = 0;
 		}		
@@ -273,12 +330,15 @@ int16_t cart_open(char *path) {
 	strncpy(files[numberOfFiles].filePath, path, length);
 	files[numberOfFiles].endPosition = 0;
 	files[numberOfFiles].currentPosition = 0;
-	for (int i = 0; i < CART_CARTRIDGE_SIZE; i++) {			// Making assumption only one cart needed. TODO: implement frame allocation
+	// Making assumption the max file size is 100k. Therefore, only one cart needed
+	// TODO Implement frame allocation to support multiple files
+	for (int i = 0; i < CART_CARTRIDGE_SIZE; i++) {
 		files[numberOfFiles].listOfFrames[i].cartIndex = 0;
 		files[numberOfFiles].listOfFrames[i].frameIndex = i;
 	}
 
-	// THIS SHOULD RETURN A FILE HANDLE
+	// Returns the file handle. If it reaches this point it is because the file
+	// had to be created and therefore its file handle will be the number of files
 	return (numberOfFiles);
 }
 
@@ -294,7 +354,6 @@ int16_t cart_close(int16_t fd) {
 	if (checkFileHandle(fd) == -1) {
 		return (-1);
 	}
-
 	// Set flag to closed
 	files[fd].openFlag = 0;
 
