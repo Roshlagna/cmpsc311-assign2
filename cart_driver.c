@@ -19,8 +19,8 @@
 
 // Filesystem
 struct frame {
-	int cartIndex;
-	int frameIndex;
+	CartridgeIndex cartIndex;
+	CartFrameIndex frameIndex;
 };
 
 struct file {
@@ -35,23 +35,27 @@ struct file {
 struct file files[CART_MAX_TOTAL_FILES];
 int numberOfFiles;
 
-//TODO Implement frame allocation to support multiple files
-//int firstFreeCart;
-//int firstFreeFrame;
-//
-//int allocateFrame(int fd) {
-//	int lastListIndex = files[fd].endPosition / 1024;
-//	lastListIndex++;
-//	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeCart;
-//	files[fd].listOfFrames[lastListIndex].cartIndex = firstFreeFrame;
-//	if (firstFreeFrame >= CART_CARTRIDGE_SIZE) {
-//		firstFreeCart += 1;
-//		firstFreeFrame = 0;
-//	} else {
-//		firstFreeFrame++;	
-//	}
-//	return (0);
-//}
+CartridgeIndex firstFreeCart;
+CartFrameIndex firstFreeFrame;
+
+int allocateFrame(int fd, int bytesToWrite) {
+	int listEnd = files[fd].endPosition / 1024;
+	int newListEnd = (files[fd].endPosition + bytesToWrite) / 1024;
+	
+	listEnd++;
+	while (listEnd <= newListEnd) {
+		files[fd].listOfFrames[listEnd].cartIndex = firstFreeCart;
+		files[fd].listOfFrames[listEnd].frameIndex = firstFreeFrame;
+		if (firstFreeFrame >= CART_CARTRIDGE_SIZE) {
+			firstFreeCart += 1;
+			firstFreeFrame = 0;
+		} else {
+			firstFreeFrame++;	
+		}
+		listEnd++;
+	}
+	return (0);
+}
 
 // Implementation
 
@@ -217,8 +221,8 @@ int checkFileHandle(int16_t fd) {
 
 int32_t cart_poweron(void) {
 	// Create log
-	// initializeLogWithFilename(LOG_SERVICE_NAME);
-	// enableLogLevels(DEFAULT_LOG_LEVEL);
+	initializeLogWithFilename(LOG_SERVICE_NAME);
+	enableLogLevels(DEFAULT_LOG_LEVEL);
 
 	CartXferRegister regstate = 0x0, ky1, ky2, rt1, ct1, fm1, index;
 	CartXferRegister oregstate[5];
@@ -261,11 +265,15 @@ int32_t cart_poweron(void) {
 		files[i].filePath[0] = '\0';
 		files[i].endPosition = 0;
 		files[i].currentPosition = 0;
-		for (int j = 0; j < CART_CARTRIDGE_SIZE; j++) {
-			files[i].listOfFrames[j].cartIndex = 0;
-			files[i].listOfFrames[j].frameIndex = 0;
-		}		
+		//for (int j = 0; j < CART_CARTRIDGE_SIZE; j++) {
+		//	files[i].listOfFrames[j].cartIndex = 0;
+		//	files[i].listOfFrames[j].frameIndex = 0;
+		//}		
 	}
+
+	firstFreeCart = 0;
+	firstFreeFrame = 0;
+
 	// Return successfully
 	return(0);
 }
@@ -330,11 +338,14 @@ int16_t cart_open(char *path) {
 	strncpy(files[numberOfFiles].filePath, path, length);
 	files[numberOfFiles].endPosition = 0;
 	files[numberOfFiles].currentPosition = 0;
-	// Making assumption the max file size is 100k. Therefore, only one cart needed
-	// TODO Implement frame allocation to support multiple files
-	for (int i = 0; i < CART_CARTRIDGE_SIZE; i++) {
-		files[numberOfFiles].listOfFrames[i].cartIndex = 0;
-		files[numberOfFiles].listOfFrames[i].frameIndex = i;
+	// Allocate a frame
+	files[numberOfFiles].listOfFrames[0].cartIndex = firstFreeCart;
+	files[numberOfFiles].listOfFrames[0].frameIndex = firstFreeFrame;
+	if (firstFreeFrame >= CART_CARTRIDGE_SIZE) {
+		firstFreeCart += 1;
+		firstFreeFrame = 0;
+	} else {
+		firstFreeFrame++;	
 	}
 
 	// Returns the file handle. If it reaches this point it is because the file
@@ -451,6 +462,8 @@ int32_t cart_write(int16_t fd, void *buf, int32_t count) {
 	int bytesRemaining, bytesToWrite, positionInFrame, listIndex, locationInBuf;
 	bytesRemaining = count;
 	locationInBuf = 0;
+
+	allocateFrame(fd, count);
 
 	while (bytesRemaining > 0) {
 		positionInFrame = files[fd].currentPosition % CART_FRAME_SIZE;	// Position in current frame
